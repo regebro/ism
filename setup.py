@@ -30,4 +30,7 @@ setup(name='ism',
       install_requires=[
           'doctrine.urwid',
       ],
+      entry_points = {
+          'console_scripts': ['ism=ism.main:main'],
+      }
 )
