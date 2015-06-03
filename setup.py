@@ -26,7 +26,7 @@ setup(name='ism',
       packages=find_packages(exclude=['ez_setup', 'examples', 'tests']),
       include_package_data=True,
       zip_safe=False,
-      test_suite='tests',
+      test_suite='tests.make_suite',
       install_requires=[
           'doctrine.urwid',
       ],
