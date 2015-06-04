@@ -1,8 +1,11 @@
-[run]
-data_file = .coverage
-
 [report]
 exclude_lines =
+    # Have to re-enable the standard pragma
+    pragma: no cover
+
     # Don't complain if tests don't hit defensive assertion code:
     raise NotImplementedError
     pass
+
+    # See bug 198, https://bitbucket.org/ned/coveragepy/issue/198/continue-marked-as-not-covered
+    continue

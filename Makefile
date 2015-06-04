@@ -27,7 +27,7 @@ test: env
 	cd src/doctrine.urwid; $(PYTHON) setup.py test
 
 coverage: env
-	cd src/doctrine.code; $(COVERAGE) run -a --source=doctrine setup.py test
+	cd src/doctrine.code; $(COVERAGE) run --source=doctrine setup.py test
 	cd src/doctrine.urwid; $(COVERAGE) run -a --source=doctrine setup.py test
 	$(COVERAGE) html
 
