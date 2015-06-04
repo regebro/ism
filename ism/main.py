@@ -1,12 +1,7 @@
 import urwid
 import sys
-from doctrine.urwid import TextEditor, LineNosWidget, EditorConfig
+from doctrine import urwid as urwidwidget
 import doctrine.code
-
-
-def exit_on_q(key):
-    if key in ('q', 'Q'):
-        raise urwid.ExitMainLoop()
 
 
 palette = [
@@ -16,9 +11,37 @@ palette = [
     ('lineno', 'light red', 'white'),
     ]
 
+SAVE = 'save'
+EXIT = 'exit'
+
+DEFAULT_COMMAND_MAP = {
+    'backspace': urwidwidget.ERASE_LEFT,
+    'delete': urwidwidget.ERASE_RIGHT,
+    'ctrl s': SAVE,
+    'ctrl q': EXIT,
+}
+
+
+class InputHandler(object):
+    def __init__(self, wrapper):
+        self.wrapper = wrapper
+
+    def handle_input(self, key):
+        command = urwid.command_map[key]
+        if command == EXIT:
+            raise urwid.ExitMainLoop()
+        if command == SAVE:
+            self.wrapper.save()
+
+
 class MainLoop(urwid.MainLoop):
     def run(self):
         try:
+            self.screen.tty_signal_keys(intr='undefined',
+                                        quit='undefined',
+                                        start='undefined',
+                                        stop='undefined',
+                                        susp='undefined')
             self._run()
         except urwid.ExitMainLoop:
             pass
@@ -27,9 +50,11 @@ class MainLoop(urwid.MainLoop):
             raise
 
 def main():
-    config = EditorConfig()
-    with open(sys.argv[1]) as file:
-        editwidget = TextEditor(doctrine.code.Code(file, 'python'), config)
-        linenos = LineNosWidget(editwidget)
-        loop = MainLoop(linenos, palette=palette, unhandled_input=exit_on_q)
+    config = urwidwidget.EditorConfig(command_map=DEFAULT_COMMAND_MAP)
+    wrapper = doctrine.code.CodeContext(sys.argv[1], 'python')
+    input_handler = InputHandler(wrapper)
+    with wrapper.open() as code:
+        editwidget = urwidwidget.TextEditor(code, config)
+        linenos = urwidwidget.LineNosWidget(editwidget)
+        loop = MainLoop(linenos, palette=palette, unhandled_input=input_handler.handle_input)
         loop.run()
