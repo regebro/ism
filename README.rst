@@ -10,7 +10,7 @@ messages and other small tasks.
 Planned Features
 ----------------
 
-* Syntax highlighting
+* Syntax highlighting with smart file-type guessing
 
 * Keyboard remapping
 
@@ -18,9 +18,17 @@ Planned Features
 
 * Single file editing
 
-* A total lack of any way to split the screen in ways that is impossible to
-  unsplit
+* Cut/Copy/Paste
 
-* No editing modes or mini-modes
+* Undo/Redo
+
+* Search/Replace
 
 * Full and extensive vi and emacs incompatibility
+
+* ESC will Escape, not enter
+
+* A total lack of any way to split the screen in ways that is impossible to
+  unsplit and then you have to quit the editor to get rid of the split
+
+* No editing modes or mini-modes
