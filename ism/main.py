@@ -117,21 +117,27 @@ class PopupMenu(urwid.WidgetWrap):
         return urwid.WidgetWrap.render(self, size, focus)
 
 
-
 class Menu(urwid.PopUpLauncher):
-    def __init__(self, label, menu_def):
-        self.__super.__init__(urwid.AttrWrap(urwid.Text(label), 'menu'))
-        self.menu_def = menu_def
-        self.height = len(menu_def)
-        self.width = max(len(x) + 2 for x in menu_def)
-        #urwid.connect_signal(self.original_widget, 'click',
-            #lambda button: self.open_pop_up())
+    def __init__(self, label, menu_items):
+        self.__super.__init__(urwid.Button(label))
+        self.menu_items = menu_items
+        self.height = len(menu_items)
+        self.width = max(len(x) + 2 for x in menu_items)
+        urwid.connect_signal(self.original_widget, 'click',
+            lambda button: self.open_pop_up())
 
     def create_pop_up(self):
-        return PopupMenu(self.menu_def, ('menu', 'menuf'), (0, 1), self)
+        return PopupMenu(self.menu_items, ('menu', 'menuf'), (0, 1), self)
 
     def get_pop_up_parameters(self):
         return {'left': 0, 'top': 1, 'overlay_width': self.width, 'overlay_height': self.height}
+
+
+class MenuBar(urwid.Columns):
+
+    def __init__(self, menu_def):
+        menus = [Menu(label, items) for label, items in menu_def]
+        super(MenuBar, self).__init__(menus, dividechars=1)
 
 
 class MainFrame(urwid.Frame):
@@ -142,7 +148,7 @@ class MainFrame(urwid.Frame):
                      ]
 
         program_menu = ["Save", "Save As", "Quit"]
-        header = urwid.AttrWrap(Menu(menu_text, program_menu), 'menu')
+        header = urwid.AttrWrap(MenuBar([(menu_text, program_menu)]), 'menu')
 
         footer = urwid.AttrWrap(urwid.Text(self.help_text()), 'menu')
 
