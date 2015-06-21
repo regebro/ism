@@ -1,23 +1,59 @@
-import urwid.curses_display
+#!/usr/bin/python
+
 import urwid
-import sys
 
-from doctrine import urwid as urwidwidget
-import doctrine.code
-
-SAVE = 'save'
-EXIT = 'exit'
-
-DEFAULT_COMMAND_MAP = {
-    'backspace': urwidwidget.ERASE_LEFT,
-    'delete': urwidwidget.ERASE_RIGHT,
-    'ctrl s': SAVE,
-    'ctrl q': EXIT,
-}
+DEFAULT_PALETTE = [('menu', 'black', 'light gray', 'standout'),
+                   ('menuh', 'yellow', 'light gray', ('standout', 'bold')),
+                   ('menuf', 'light gray', 'dark blue'),
+                   ('bgf', 'light gray', 'dark blue'),
+                   ('bg', 'black', 'light gray', 'standout'),
+                   ('alert', 'light gray', 'dark red', ('standout', 'bold')),
+                   ('code', 'black', 'light gray'),
+                   ('lineno', 'light blue', 'light gray'),
+                   ]
 
 
-class SelText(urwid.Text):
-    """A selectable text widget."""
+class SimpleDialog(urwid.WidgetWrap):
+    """Simple popup dialog with text and buttons
+
+    :param message: The text message in the dialog
+    :type message: str
+
+    :param buttons: Buttons to show, each button have an id and a label.
+    :type message: list of (name, label) tuples
+
+    """
+    signals = ['close']
+    pressed = None
+
+    def __init__(self, text, buttons):
+        button_widgets = []
+        for id, label in buttons:
+            button = urwid.Button(label)
+            button.id = id
+            urwid.connect_signal(button, 'click',
+                self.buttonpress)
+            button_widgets.append(button)
+
+        buttons = urwid.Columns(button_widgets)
+        pile = urwid.Pile([urwid.Text( text), buttons])
+        fill = urwid.Filler(pile)
+        self.__super.__init__(urwid.AttrWrap(fill, 'popbg'))
+
+    def keypress(self, size, key):
+        if key == 'esc':
+            self.pressed = None
+            self._emit("close")
+            return
+        return self._w.keypress(size, key)
+
+    def buttonpress(self, button):
+        self.pressed = button.id
+        self._emit("close")
+
+
+class MenuItem(urwid.Text):
+    """A MenuItem"""
 
     _selectable = True
 
@@ -26,7 +62,7 @@ class SelText(urwid.Text):
         return key
 
 
-class Menu(urwid.WidgetWrap):
+class PopupMenu(urwid.WidgetWrap):
     """Creates a popup menu on top of another BoxWidget.
 
     :param menu_list: The menu entries
@@ -51,200 +87,96 @@ class Menu(urwid.WidgetWrap):
 
     def __init__(self, menu_list, attr, pos, body):
 
-        content = [urwid.AttrWrap(SelText(" " + w), None, attr[1])
+        content = [urwid.AttrWrap(MenuItem(" " + w), None, attr[1])
                    for w in menu_list]
 
-        #Calculate width and height of the menu widget:
+        # Calculate width and height of the menu widget:
         height = len(menu_list)
         width = 0
         for entry in menu_list:
             if len(entry) > width:
                 width = len(entry)
 
-        #Create the ListBox widget and put it on top of body:
+        # Create the ListBox widget and put it on top of body:
         self._listbox = urwid.AttrWrap(urwid.ListBox(content), attr[0])
         overlay = urwid.Overlay(self._listbox, body, ('fixed left', pos[0]),
                                 width + 2, ('fixed top', pos[1]), height)
 
         urwid.WidgetWrap.__init__(self, overlay)
 
-
     def keypress(self, size, key):
 
         if key == "enter":
             (widget, foo) = self._listbox.get_focus()
             (text, foo) = widget.get_text()
-            self.selected = text[1:] #Get rid of the leading space...
+            self.selected = text[1:] # Get rid of the leading space...
         else:
             return self._listbox.keypress(size, key)
 
-
-
-def menubar():
-    """Menu bar at the top of the screen"""
-
-    menu_text = [('menuh', " P"), ('menu', "rogram   "),
-                 ]
-
-    return urwid.AttrWrap(urwid.Text(menu_text), 'menu')
+    def render(self, size, focus):
+        return urwid.WidgetWrap.render(self, size, focus)
 
 
 
-def statusbar():
-    """
-    Status bar at the bottom of the screen.
-    """
+class Menu(urwid.PopUpLauncher):
+    def __init__(self, label, menu_def):
+        self.__super.__init__(urwid.AttrWrap(urwid.Text(label), 'menu'))
+        self.menu_def = menu_def
+        self.height = len(menu_def)
+        self.width = max(len(x) + 2 for x in menu_def)
+        #urwid.connect_signal(self.original_widget, 'click',
+            #lambda button: self.open_pop_up())
 
-    status_text = "Statusbar -- Press Alt + <key> for menu entries"
-    return urwid.AttrWrap(urwid.Text(status_text), 'menu')
+    def create_pop_up(self):
+        return PopupMenu(self.menu_def, ('menu', 'menuf'), (0, 1), self)
 
-
-
-def body():
-    """
-    Body (main part) of the screen
-    """
-
-    main_text = " Hello world! \n\n I'm the main view."
-    return urwid.AttrWrap(urwid.Filler(urwid.Text(main_text)), 'bg')
+    def get_pop_up_parameters(self):
+        return {'left': 0, 'top': 1, 'overlay_width': self.width, 'overlay_height': self.height}
 
 
+class MainFrame(urwid.Frame):
+    def __init__(self):
+        body = urwid.Filler(urwid.Padding(ThingWithAPopUp(), 'center', 15))
 
-class Dialog(urwid.WidgetWrap):
-    """
-    Creates a BoxWidget that displays a message
+        menu_text = [('menuh', " P"), ('menu', "rogram   "),
+                     ]
 
-    Attributes:
+        program_menu = ["Save", "Save As", "Quit"]
+        header = urwid.AttrWrap(Menu(menu_text, program_menu), 'menu')
 
-    b_pressed -- Contains the label of the last button pressed or None if no
-                 button has been pressed.
-    edit_text -- After a button is pressed, this contains the text the user
-                 has entered in the edit field
-    """
+        footer = urwid.AttrWrap(urwid.Text(self.help_text()), 'menu')
 
-    b_pressed = None
-    edit_text = None
+        self.__super.__init__(body, header=header, footer=footer,
+                              focus_part='body')
 
-    _blank = urwid.Text("")
-    _edit_widget = None
-    _mode = None
+    def help_text(self):
+        return "Press Alt-H for help"
 
-    def __init__(self, msg, buttons, attr, width, height, body, ):
-        """
-        msg -- content of the message widget, one of:
-                   plain string -- string is displayed
-                   (attr, markup2) -- markup2 is given attribute attr
-                   [markupA, markupB, ... ] -- list items joined together
-        buttons -- a list of strings with the button labels
-        attr -- a tuple (background, button, active_button) of attributes
-        width -- width of the message widget
-        height -- height of the message widget
-        body -- widget displayed beneath the message widget
-        """
+    def keypress(self, size, key):
+        if key == 'meta p':
+            return self.header.open_pop_up()
 
-        #Text widget containing the message:
-        msg_widget = urwid.Padding(urwid.Text(msg), 'center', width - 4)
-
-        #GridFlow widget containing all the buttons:
-        button_widgets = []
-
-        for button in buttons:
-            button_widgets.append(urwid.AttrWrap(
-                urwid.Button(button, self._action), attr[1], attr[2]))
-
-        button_grid = urwid.GridFlow(button_widgets, 12, 2, 1, 'center')
-
-        #Combine message widget and button widget:
-        widget_list = [msg_widget, self._blank, button_grid]
-        self._combined = urwid.AttrWrap(urwid.Filler(
-            urwid.Pile(widget_list, 2)), attr[0])
-
-        #Place the dialog widget on top of body:
-        overlay = urwid.Overlay(self._combined, body, 'center', width,
-                                'middle', height)
-
-        urwid.WidgetWrap.__init__(self, overlay)
-
-
-    def _action(self, button):
-        """
-        Function called when a button is pressed.
-        Should not be called manually.
-        """
-
-        self.b_pressed = button.get_label()
-        if self._edit_widget:
-            self.edit_text = self._edit_widget.get_edit_text()
+        return super(MainFrame, self).keypress(size, key)
 
 
 
-def confirm_quit(ui, dim, display):
-    """Confirm quit dialog"""
+class ThingWithAPopUp(urwid.PopUpLauncher):
+    def __init__(self):
+        self.__super.__init__(urwid.Button("click-me"))
+        urwid.connect_signal(self.original_widget, 'click',
+            lambda button: self.open_pop_up())
 
-    confirm = Dialog("Really quit?", ["Yes", "No"],
-                     ('menu', 'bg', 'bgf'), 30, 5, display)
+    def create_pop_up(self):
+        pop_up = SimpleDialog('Text', [('yes', 'Yes'), ('no', 'No')])
+        urwid.connect_signal(pop_up, 'close',
+            lambda button: self.close_pop_up())
+        return pop_up
 
-    keys = True
-
-    #Event loop:
-    while True:
-        if keys:
-            ui.draw_screen(dim, confirm.render(dim, True))
-
-        keys = ui.get_input()
-        if "window resize" in keys:
-            dim = ui.get_cols_rows()
-        if "esc" in keys:
-            return False
-        for k in keys:
-            confirm.keypress(dim, k)
-
-        if confirm.b_pressed == "Yes":
-            return True
-        if confirm.b_pressed == "No":
-            return False
+    def get_pop_up_parameters(self):
+        return {'left':0, 'top':1, 'overlay_width':32, 'overlay_height':7}
 
 
-
-def program_menu(ui, dim, display):
-    """Program menu"""
-
-    program_menu = Menu(["Save", "Save As", "Quit"],
-                        ('menu', 'menuf'), (0, 1), display)
-
-    keys = True
-
-    #Event loop:
-    while True:
-        if keys:
-            ui.draw_screen(dim, program_menu.render(dim, True))
-
-        keys = ui.get_input()
-
-        if "window resize" in keys:
-            dim = ui.get_cols_rows()
-        if "esc" in keys:
-            return
-
-        for k in keys:
-            #Send key to underlying widget:
-            program_menu.keypress(dim, k)
-
-        if program_menu.selected == "Quit":
-            if confirm_quit(ui, dim, display):
-                sys.exit(0)
-            else:
-                return
-
-        if program_menu.selected == "Foo":
-            #Do something
-            return
-
-        if program_menu.selected == "Bar":
-            #Do something
-            return
-
-
+# Custom main loop that stops screen on exceptions.
 class MainLoop(urwid.MainLoop):
     def run(self):
         try:
@@ -256,116 +188,21 @@ class MainLoop(urwid.MainLoop):
             raise
 
 
-class InputHandler(object):
-    def __init__(self, wrapper, display):
-        self.wrapper = wrapper
-        self.display = display
-
-    def handle_input(self, key):
-        dim = ui.get_cols_rows()
-
-        command = urwid.command_map[key]
-        if command == EXIT:
-            if confirm_quit(ui, dim, self.display):
-                sys.exit(0)
-        if command == SAVE:
-            self.wrapper.save()
-
-        ui.draw_screen(dim, self.display.render(dim, True))
-
-
-
-def run():
-    """
-    Main part.
-    """
-    palette = [('menu', 'black', 'light gray', 'standout'),
-     ('menuh', 'yellow', 'light gray', ('standout', 'bold')),
-     ('menuf', 'light gray', 'dark blue'),
-     ('bgf', 'light gray', 'dark blue'),
-     ('bg', 'black', 'light gray', 'standout'),
-     ('alert', 'light gray', 'dark red', ('standout', 'bold')),
-     ('code', 'black', 'light gray'),
-     ('lineno', 'light blue', 'light gray'),
-     ]
-
-    #Set up displayed stuff:
-    dim = ui.get_cols_rows()
-
-    config = urwidwidget.EditorConfig(command_map=DEFAULT_COMMAND_MAP)
-    wrapper = doctrine.code.CodeContext(sys.argv[1], 'python')
-    with wrapper.open() as code:
-        editwidget = urwidwidget.TextEditor(code, config)
-        main_view = urwidwidget.LineNosWidget(editwidget)
-        display = urwid.Frame(main_view, menubar(), statusbar())
-
-        keys = True
-        input_handler = InputHandler(wrapper, display)
-        loop = MainLoop(display, palette=palette, unhandled_input=input_handler.handle_input)
-        loop.run()
-        sys.exit(0)
-
-
-        #Main event loop:
-        while True:
-            if keys:
-                #Redraw screen after user input:
-                display = urwid.Frame(main_view, menubar(), statusbar())
-                ui.draw_screen(dim, display.render(dim, True))
-
-            keys = ui.get_input()
-
-            if "window resize" in keys:
-                dim = ui.get_cols_rows()
-                continue
-
-            if "meta P" in keys or "meta p" in keys:
-                #Show program menu:
-                program_menu(ui, dim, display)
-                continue
-
-            for key in keys:
-                key = display.keypress(dim, key)
-
-                if key is None:
-                    continue  # Key was handled
-                command = urwid.command_map[key]
-                if command == EXIT:
-                    #raise urwid.ExitMainLoop()
-                    if confirm_quit(ui, dim, display):
-                        sys.exit(0)
-
-                if command == SAVE:
-                    wrapper.save()
-
-
-# Entry point. Perform some initialisation:
-
-#init screen:
-ui = urwid.raw_display.Screen()
-ui.register_palette(
-    [('menu', 'black', 'light gray', 'standout'),
-     ('menuh', 'yellow', 'light gray', ('standout', 'bold')),
-     ('menuf', 'light gray', 'dark blue'),
-     ('bgf', 'light gray', 'dark blue'),
-     ('bg', 'black', 'light gray', 'standout'),
-     ('alert', 'light gray', 'dark red', ('standout', 'bold')),
-     ('code', 'black', 'light gray'),
-     ('lineno', 'light blue', 'light gray'),
-     ])
-
-#start main part:
 def main():
-    try:
-        ui.tty_signal_keys(#intr='undefined',
-                   #        quit='undefined',
-                           start='undefined',
-                           stop='undefined',
-                           susp='undefined')
-        ui.run_wrapper(run)
-    except urwid.ExitMainLoop:
-        pass
-    except BaseException:
-        ui.stop()
-        raise
+        ui = urwid.raw_display.Screen()
+        #ui.tty_signal_keys(intr='undefined',
+                           #quit='undefined',
+                           #start='undefined',
+                           #stop='undefined',
+                           #susp='undefined')
+        fill = MainFrame()
+        loop = MainLoop(
+            fill,
+            DEFAULT_PALETTE,
+            pop_ups=True)
+        loop.run()
 
+
+
+if __name__ == '__main__':
+    main()
