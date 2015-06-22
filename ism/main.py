@@ -36,8 +36,8 @@ class SimpleDialog(urwid.WidgetWrap):
             button_widgets.append(button)
 
         buttons = urwid.Columns(button_widgets)
-        pile = urwid.Pile([urwid.Text( text), buttons])
-        fill = urwid.Filler(pile)
+        self.pile = urwid.Pile([urwid.Text( text), buttons])
+        fill = urwid.Filler(self.pile)
         self.__super.__init__(urwid.AttrWrap(fill, 'popbg'))
 
     def keypress(self, size, key):
@@ -51,119 +51,50 @@ class SimpleDialog(urwid.WidgetWrap):
         self.pressed = button.id
         self._emit("close")
 
-
-class MenuItem(urwid.Text):
-    """A MenuItem"""
-
-    _selectable = True
-
-    def keypress(self, size, key):
-        """Don't handle any keys."""
-        return key
-
-
-class PopupMenu(urwid.WidgetWrap):
-    """Creates a popup menu on top of another BoxWidget.
-
-    :param menu_list: The menu entries
-    :type menu_list: A list of strings
-
-    :param attr: Display attributes (background, active_item)
-    :type attr: tuple
-
-    :param pos: The position of the menu widget
-    :type pos: (x, y) tuple
-
-    :param body: The widget displayed beneath the message widget
-    :type body: widget
-
-    Attributes:
-
-    :param selected: The item the user has selected by pressing <RETURN>,
-                     or None if nothing has been selected.
-    """
-
-    selected = None
-
-    def __init__(self, menu_list, attr, pos, body):
-
-        content = [urwid.AttrWrap(MenuItem(" " + w), None, attr[1])
-                   for w in menu_list]
-
-        # Calculate width and height of the menu widget:
-        height = len(menu_list)
-        width = 0
-        for entry in menu_list:
-            if len(entry) > width:
-                width = len(entry)
-
-        # Create the ListBox widget and put it on top of body:
-        self._listbox = urwid.AttrWrap(urwid.ListBox(content), attr[0])
-        overlay = urwid.Overlay(self._listbox, body, ('fixed left', pos[0]),
-                                width + 2, ('fixed top', pos[1]), height)
-
-        urwid.WidgetWrap.__init__(self, overlay)
-
-    def keypress(self, size, key):
-
-        if key == "enter":
-            (widget, foo) = self._listbox.get_focus()
-            (text, foo) = widget.get_text()
-            self.selected = text[1:] # Get rid of the leading space...
-        else:
-            return self._listbox.keypress(size, key)
-
-    def render(self, size, focus):
-        return urwid.WidgetWrap.render(self, size, focus)
-
-
-class Menu(urwid.PopUpLauncher):
-    def __init__(self, label, menu_items):
-        self.__super.__init__(urwid.Button(label))
-        self.menu_items = menu_items
-        self.height = len(menu_items)
-        self.width = max(len(x) + 2 for x in menu_items)
-        urwid.connect_signal(self.original_widget, 'click',
-            lambda button: self.open_pop_up())
-
-    def create_pop_up(self):
-        return PopupMenu(self.menu_items, ('menu', 'menuf'), (0, 1), self)
-
-    def get_pop_up_parameters(self):
-        return {'left': 0, 'top': 1, 'overlay_width': self.width, 'overlay_height': self.height}
-
-
-class MenuBar(urwid.Columns):
-
-    def __init__(self, menu_def):
-        menus = [Menu(label, items) for label, items in menu_def]
-        super(MenuBar, self).__init__(menus, dividechars=1)
+    def pack(self, size, focus=False):
+        packed = self.pile.pack(size)
+        return packed
 
 
 class MainFrame(urwid.Frame):
+
+    _pop_up_widget = None
+
     def __init__(self):
         body = urwid.Filler(urwid.Padding(ThingWithAPopUp(), 'center', 15))
 
-        menu_text = [('menuh', " P"), ('menu', "rogram   "),
-                     ]
-
-        program_menu = ["Save", "Save As", "Quit"]
-        header = urwid.AttrWrap(MenuBar([(menu_text, program_menu)]), 'menu')
-
         footer = urwid.AttrWrap(urwid.Text(self.help_text()), 'menu')
 
-        self.__super.__init__(body, header=header, footer=footer,
+        self.__super.__init__(body, header=None, footer=footer,
                               focus_part='body')
 
     def help_text(self):
         return "Press Alt-H for help"
 
+    def set_pop_up(self, widget):
+        self._pop_up_widget = widget
+        p = widget.pack((80, 24))
+        urwid.connect_signal(widget, 'close',
+            lambda button: self.close_pop_up())
+        self._invalidate()
+
+    def close_pop_up(self):
+        self._pop_up_widget = None
+        self._invalidate()
+
     def keypress(self, size, key):
-        if key == 'meta p':
-            return self.header.open_pop_up()
+        if key == 'ctrl r':
+            self.set_pop_up(SimpleDialog('Text', [('yes', 'Yes'), ('no', 'No')]))
+
 
         return super(MainFrame, self).keypress(size, key)
 
+    def render(self, size, focus=False):
+        canv = self.__super.render(size, focus)
+        if self._pop_up_widget:
+            canv = urwid.CompositeCanvas(canv)
+            canv.set_pop_up(self._pop_up_widget, 0, 0, size[0], size[1])
+        return canv
 
 
 class ThingWithAPopUp(urwid.PopUpLauncher):
