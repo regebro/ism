@@ -26,19 +26,26 @@ class SimpleDialog(urwid.WidgetWrap):
     signals = ['close']
     pressed = None
 
-    def __init__(self, text, buttons):
+    def __init__(self, text, buttons, size):
+        self.size = size
         button_widgets = []
+        self.minwidth = -1  # We don't need a space before the first
         for id, label in buttons:
+            self.minwidth += len(label) + 5
             button = urwid.Button(label)
             button.id = id
             urwid.connect_signal(button, 'click',
                 self.buttonpress)
             button_widgets.append(button)
 
-        buttons = urwid.Columns(button_widgets)
-        self.pile = urwid.Pile([urwid.Text( text), buttons])
-        fill = urwid.Filler(self.pile)
-        self.__super.__init__(urwid.AttrWrap(fill, 'popbg'))
+        # We won't render it wider than necessary
+        self.maxwidth = max(self.minwidth, len(text))
+
+        buttons = urwid.Columns(button_widgets, dividechars=1)
+        label = urwid.Text(text)
+
+        pile = urwid.Pile([label, buttons])
+        self.__super.__init__(urwid.AttrWrap(pile, 'popbg'))
 
     def keypress(self, size, key):
         if key == 'esc':
@@ -51,9 +58,31 @@ class SimpleDialog(urwid.WidgetWrap):
         self.pressed = button.id
         self._emit("close")
 
-    def pack(self, size, focus=False):
-        packed = self.pile.pack(size)
-        return packed
+    def render(self, size, focus=False):
+        cols, rows = size
+        if cols < self.minwidth:
+            raise AssertionError("This dialog can not be rendered with a "
+                                 "width below %n" % self.minwidth)
+
+        # We render it wider, if asked to
+        width = max(cols, self.minwidth)
+        # But not wider than the maxwidth
+        width = min(width, self.maxwidth)
+
+        canv = self._w.render((width,), focus)
+
+        # And now we pad out the canvas to the desired size
+        canv = urwid.CompositeCanvas(canv)
+        pad = cols - canv.cols()
+        left = pad // 2
+        right = pad - left
+        canv.pad_trim_left_right(left, right)
+        pad = rows - canv.rows()
+        top = pad // 2
+        bottom = pad - top
+        canv.pad_trim_top_bottom(top, bottom)
+
+        return canv
 
 
 class MainFrame(urwid.Frame):
@@ -71,7 +100,7 @@ class MainFrame(urwid.Frame):
     def help_text(self):
         return "Press Alt-H for help"
 
-    def set_pop_up(self, widget):
+    def pop_up(self, widget):
         self._pop_up_widget = widget
         p = widget.pack((80, 24))
         urwid.connect_signal(widget, 'close',
@@ -84,7 +113,7 @@ class MainFrame(urwid.Frame):
 
     def keypress(self, size, key):
         if key == 'ctrl r':
-            self.set_pop_up(SimpleDialog('Text', [('yes', 'Yes'), ('no', 'No')]))
+            self.pop_up(SimpleDialog('Do you want to quit?', [('yes', 'Yes'), ('no', 'No')], (25, 4)))
 
 
         return super(MainFrame, self).keypress(size, key)
@@ -104,7 +133,7 @@ class ThingWithAPopUp(urwid.PopUpLauncher):
             lambda button: self.open_pop_up())
 
     def create_pop_up(self):
-        pop_up = SimpleDialog('Text', [('yes', 'Yes'), ('no', 'No')])
+        pop_up = SimpleDialog('Text', [('yes', 'Yes'), ('no', 'No')], (32, 7))
         urwid.connect_signal(pop_up, 'close',
             lambda button: self.close_pop_up())
         return pop_up
