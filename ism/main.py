@@ -19,23 +19,24 @@ class SimpleDialog(urwid.WidgetWrap):
     :param message: The text message in the dialog
     :type message: str
 
-    :param buttons: Buttons to show, each button have an id and a label.
-    :type message: list of (name, label) tuples
+    :param buttons: A list of buttons, each button being a tuple of name,
+                    label and function to call when pressed
+    :type message: list of (name, label, function) tuples
 
     """
     signals = ['close']
-    pressed = None
+    selected = None
 
-    def __init__(self, text, buttons, size):
-        self.size = size
+    def __init__(self, text, buttons):
         button_widgets = []
-        self.minwidth = -1  # We don't need a space before the first
-        for id, label in buttons:
-            self.minwidth += len(label) + 5
+        self._actions = {}
+        self.minwidth = -1  # We don't need a space before the first button
+        for name, label, function in buttons:
+            self.minwidth += len(label) + 5  # Button is 4 wider + 1 space
             button = urwid.Button(label)
-            button.id = id
-            urwid.connect_signal(button, 'click',
-                self.buttonpress)
+            button.name = name
+            self._actions[name] = function
+            urwid.connect_signal(button, 'click', self.select)
             button_widgets.append(button)
 
         # We won't render it wider than necessary
@@ -49,13 +50,16 @@ class SimpleDialog(urwid.WidgetWrap):
 
     def keypress(self, size, key):
         if key == 'esc':
-            self.pressed = None
+            self.selected = None
             self._emit("close")
             return
         return self._w.keypress(size, key)
 
-    def buttonpress(self, button):
-        self.pressed = button.id
+    def select(self, button):
+        self.selected = button.name
+        action = self._actions[button.name]
+        if action is not None:
+            action()
         self._emit("close")
 
     def render(self, size, focus=False):
@@ -83,6 +87,87 @@ class SimpleDialog(urwid.WidgetWrap):
         canv.pad_trim_top_bottom(top, bottom)
 
         return canv
+
+
+class MenuItem(urwid.Text):
+    """A MenuItem, used by the Menu class"""
+
+    signals = ['click']
+    _selectable = True
+
+    def __init__(self, name, markup):
+        self.name = name
+        super(MenuItem, self).__init__(markup, align=urwid.LEFT, wrap=urwid.ANY)
+
+    def keypress(self, size, key):
+        """Don't handle any keys."""
+        return key
+
+
+class Menu(urwid.WidgetWrap):
+    """Creates a popup menu on top of another BoxWidget.
+
+    :param menu_list: The menu entries
+    :type menu_list: A list of strings
+
+    :param attr: Display attributes (background, active_item)
+    :type attr: tuple
+
+    :param pos: The position of the menu widget
+    :type pos: (x, y) tuple
+
+    :param body: The widget displayed beneath the message widget
+    :type body: widget
+
+    Attributes:
+
+    :param selected: The item the user has selected by pressing <RETURN>,
+                     or None if nothing has been selected.
+    """
+
+    signals = ['close']
+    selected = None
+
+    def __init__(self, menu_list, attr):
+
+        self._actions = {}
+        items = []
+        for name, label, function in menu_list:
+            item = MenuItem(name, label)
+            self._actions[name] = function
+            urwid.connect_signal(item, 'click', self.select)
+            items.append(urwid.AttrWrap(item, None, attr[1]))
+
+        # Calculate width and height of the menu widget:
+        height = len(menu_list)
+        width = 0
+        for entry in menu_list:
+            if len(entry) > width:
+                width = len(entry)
+
+        # Create the ListBox widget:
+        self._listbox = urwid.AttrWrap(urwid.ListBox(items), attr[0])
+        urwid.WidgetWrap.__init__(self, self._listbox)
+
+
+    def keypress(self, size, key):
+
+        if key == "enter":
+            (widget, foo) = self._listbox.get_focus()
+            self.selected = widget.name #Get rid of the leading space...
+            action = self._actions[widget.name]
+            if action is not None:
+                action()
+            self._emit("close")
+        else:
+            return self._listbox.keypress(size, key)
+
+    def select(self, item):
+        self.selected = item.name
+        action = self._actions[item.name]
+        if action is not None:
+            action()
+        self._emit("close")
 
 
 class MainFrame(urwid.Frame):
@@ -113,8 +198,9 @@ class MainFrame(urwid.Frame):
 
     def keypress(self, size, key):
         if key == 'ctrl r':
-            self.pop_up(SimpleDialog('Do you want to quit?', [('yes', 'Yes'), ('no', 'No')], (25, 4)))
-
+            self.pop_up(SimpleDialog('Do you want to quit?',
+                                     [('yes', 'Yes', self.action_quit),
+                                      ('no', 'No', None)]))
 
         return super(MainFrame, self).keypress(size, key)
 
@@ -125,6 +211,9 @@ class MainFrame(urwid.Frame):
             canv.set_pop_up(self._pop_up_widget, 0, 0, size[0], size[1])
         return canv
 
+    def action_quit(self):
+        raise urwid.ExitMainLoop()
+
 
 class ThingWithAPopUp(urwid.PopUpLauncher):
     def __init__(self):
@@ -133,7 +222,10 @@ class ThingWithAPopUp(urwid.PopUpLauncher):
             lambda button: self.open_pop_up())
 
     def create_pop_up(self):
-        pop_up = SimpleDialog('Text', [('yes', 'Yes'), ('no', 'No')], (32, 7))
+        pop_up = Menu([('save', "Save", None),
+                       ('saveas', "Save As", None),
+                       ('quit', "Quit", None)],
+                      ('menu', 'menuf'))
         urwid.connect_signal(pop_up, 'close',
             lambda button: self.close_pop_up())
         return pop_up
