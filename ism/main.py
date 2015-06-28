@@ -107,8 +107,8 @@ class MenuItem(urwid.Text):
 class Menu(urwid.WidgetWrap):
     """Creates a popup menu on top of another BoxWidget.
 
-    :param menu_list: The menu entries
-    :type menu_list: A list of strings
+    :param menu_def: The menu entries
+    :type menu_def: A list of (name, label, function) tuples
 
     :param attr: Display attributes (background, active_item)
     :type attr: tuple
@@ -128,36 +128,38 @@ class Menu(urwid.WidgetWrap):
     signals = ['close']
     selected = None
 
-    def __init__(self, menu_list, attr):
+    def __init__(self, menu_def):
 
         self._actions = {}
         items = []
-        for name, label, function in menu_list:
+        for name, label, function in menu_def:
             item = MenuItem(name, label)
             self._actions[name] = function
             urwid.connect_signal(item, 'click', self.select)
-            items.append(urwid.AttrWrap(item, None, attr[1]))
+            items.append(urwid.AttrWrap(item, None, 'menuf'))
 
         # Calculate width and height of the menu widget:
-        height = len(menu_list)
+        height = len(menu_def)
         width = 0
-        for entry in menu_list:
+        for entry in menu_def:
             if len(entry) > width:
                 width = len(entry)
 
         # Create the ListBox widget:
-        self._listbox = urwid.AttrWrap(urwid.ListBox(items), attr[0])
+        self._listbox = urwid.AttrWrap(urwid.ListBox(items), 'menu')
         urwid.WidgetWrap.__init__(self, self._listbox)
 
 
     def keypress(self, size, key):
-
         if key == "enter":
             (widget, foo) = self._listbox.get_focus()
-            self.selected = widget.name #Get rid of the leading space...
+            self.selected = widget.name
             action = self._actions[widget.name]
             if action is not None:
                 action()
+            self._emit("close")
+        elif key == 'esc':
+            self.selected = None
             self._emit("close")
         else:
             return self._listbox.keypress(size, key)
@@ -170,16 +172,44 @@ class Menu(urwid.WidgetWrap):
         self._emit("close")
 
 
+class MenuBar(urwid.WidgetWrap):
+    """The top bar in a WIMP program
+
+    :param menubar_def: The menu entries
+    :type menu: A list of (name, label, menu_def) tuples
+
+    """
+
+    def __init__(self, menubar_def):
+        self.menus = {}
+        menus = []
+        labels = []
+        for name, label, menu_def in menubar_def:
+            menu = Menu(menu_def)
+            menus.append(menu)
+            self.menus[name] = menu
+            labels.append(urwid.AttrWrap(urwid.Text(label), 'menu'))
+
+        menubar = urwid.Columns(labels, dividechars=1)
+        super(MenuBar, self).__init__(menubar)
+
+
 class MainFrame(urwid.Frame):
 
     _pop_up_widget = None
 
     def __init__(self):
-        body = urwid.Filler(urwid.Padding(ThingWithAPopUp(), 'center', 15))
+        body = urwid.Filler(urwid.Padding(urwid.Text(
+            'Ctrl-P for popup, Alt-M for menu'), 'center', 15))
 
         footer = urwid.AttrWrap(urwid.Text(self.help_text()), 'menu')
 
-        self.__super.__init__(body, header=None, footer=footer,
+        menubar_def = [('file',
+                        [('menuh', 'F'), ('menu', 'ile')],
+                        [('save', "Save", None),
+                         ('saveas', "Save As", None),
+                         ('quit', "Quit", None)])]
+        self.__super.__init__(body, header=MenuBar(menubar_def), footer=footer,
                               focus_part='body')
 
     def help_text(self):
@@ -197,10 +227,17 @@ class MainFrame(urwid.Frame):
         self._invalidate()
 
     def keypress(self, size, key):
+        if key == 'ctrl p':
+            self.pop_up(SimpleDialog('In a dialogbox you can select buttons or press <esc>',
+                                     [('ok', 'OK', None),
+                                      ('yes', 'Gotcha', None)]))
+            return
+
         if key == 'ctrl r':
             self.pop_up(SimpleDialog('Do you want to quit?',
                                      [('yes', 'Yes', self.action_quit),
                                       ('no', 'No', None)]))
+            return
 
         return super(MainFrame, self).keypress(size, key)
 
@@ -213,25 +250,6 @@ class MainFrame(urwid.Frame):
 
     def action_quit(self):
         raise urwid.ExitMainLoop()
-
-
-class ThingWithAPopUp(urwid.PopUpLauncher):
-    def __init__(self):
-        self.__super.__init__(urwid.Button("click-me"))
-        urwid.connect_signal(self.original_widget, 'click',
-            lambda button: self.open_pop_up())
-
-    def create_pop_up(self):
-        pop_up = Menu([('save', "Save", None),
-                       ('saveas', "Save As", None),
-                       ('quit', "Quit", None)],
-                      ('menu', 'menuf'))
-        urwid.connect_signal(pop_up, 'close',
-            lambda button: self.close_pop_up())
-        return pop_up
-
-    def get_pop_up_parameters(self):
-        return {'left':0, 'top':1, 'overlay_width':32, 'overlay_height':7}
 
 
 # Custom main loop that stops screen on exceptions.
